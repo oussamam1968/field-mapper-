@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Signing in…</title>
+<script>
+  function loadHandler() {
+    if (opener) {
+      if (location.hash) {
+        var esriId = null;
+        try { esriId = opener.require("esri/kernel").id; } catch (e) { esriId = null; }
+        if (esriId) { esriId.setOAuthResponseHash(location.hash); }
+        else { opener.dispatchEvent(new CustomEvent("arcgis:auth:hash", { detail: location.hash })); }
+      } else if (location.search) {
+        opener.dispatchEvent(new CustomEvent("arcgis:auth:location:search", { detail: location.search }));
+      }
+    }
+    close();
+  }
+</script>
+</head>
+<body onload="loadHandler()">Signing in…</body>
+</html>
