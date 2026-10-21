@@ -4,13 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AGOL Field Mapper</title>
-<script src="config.js"></script>
 <script>
-/* ================== SETTINGS ==================
-   Best: put your Client ID in config.js (uploaded next to this file),
-   so you never have to edit this file again when it is updated.
-   ============================================== */
-if (!window.FM_CONFIG) window.FM_CONFIG = {
+/* ================== SETTINGS: edit these two lines ================== */
+window.FM_CONFIG = {
   portalUrl: "https://npaid.maps.arcgis.com",   // your ArcGIS Online organisation
   appId: "PASTE_YOUR_CLIENT_ID_HERE"            // OAuth 2.0 Client ID (see the setup guide)
 };
@@ -426,14 +422,6 @@ function realApi() {
       return {user: p.user ? p.user.username : "", portal: purl, orgId: p.id};
     },
     useHome(side) { portals[side] = portals.home; },
-    async useToken(url, token) {
-      await ready;
-      const m = url.match(/^(https:\/\/[^\/]+\/[^\/]+)\/(rest\/services|sharing\/rest)/i);
-      if (!m) throw fail("The token can only be used with an https ArcGIS address (…/rest/services/… or …/sharing/rest).");
-      const server = m[1] + "/" + m[2];
-      try { const old = esriId.findCredential(server); if (old) old.destroy(); } catch (e) {}
-      esriId.registerToken({server, token: token.trim(), ssl: true});
-    },
     async search(side, scope, q) {
       const p = portals[side]; const me = p.user ? p.user.username : "";
       const run = async (scopeQ) => {
@@ -537,19 +525,11 @@ function demoApi() {
     async status() { return {user: "demo_user", portal: "demo organisation"}; },
     async signIn() { return this.status(); }, signOut() {},
     async connect(side, url) { await wait(); return {user: "demo_user", portal: url || "demo organisation"}; },
-    useHome() {}, async useToken() {},
+    useHome() {},
     async search(side, scope, q) { await wait(); return [{id: "src1", title: "232 NTS Field Report Syria 2025 (demo)", owner: "admin.syria_npaid", url: "demo://src", shared: true}, {id: "tgt1", title: "232 HZ Field Report Syria 2023 (demo)", owner: "demo_user", url: "demo://tgt", shared: false}].filter(it => !q || it.title.toLowerCase().includes(q.toLowerCase())); },
-    async itemLayers(side, item) {
-      if (/FeatureServer$/.test(item.url)) { const d = await this.layerInfo(side, item.url); return (d.layers || []).map(l => ({name: l.name, url: item.url + "/" + l.id, kind: "Layer"})).concat((d.tables || []).map(l => ({name: l.name, url: item.url + "/" + l.id, kind: "Table"}))); }
-      return [{name: "polygon_information", url: item.url + "/0", kind: "Layer"}]; },
+    async itemLayers(side, item) { return [{name: "polygon_information", url: item.url + "/0", kind: "Layer"}]; },
     async itemById(side, id) { return (await this.search(side))[id === "tgt1" ? 1 : 0]; },
-    async layerInfo(side, url) {
-      await wait(); const u = url.replace(/\/$/, "");
-      const srv = "https://demo.server/server/rest/services";   // demo ArcGIS Server for the paste-a-URL path
-      if (u === srv + "/non_technical_survey") return {folders: [], services: [{name: "non_technical_survey/NTS_2025", type: "FeatureServer"}, {name: "non_technical_survey/NTS_2025", type: "MapServer"}]};
-      if (u === srv + "/non_technical_survey/NTS_2025/FeatureServer") return {layers: [{id: 0, name: "polygon_information"}, {id: 1, name: "points"}], tables: [{id: 2, name: "visits"}]};
-      if (u.startsWith(srv + "/non_technical_survey/NTS_2025/FeatureServer/")) return JSON.parse(JSON.stringify(TGT));
-      const d = info[u]; if (!d) throw fail("Layer not found"); return JSON.parse(JSON.stringify(d)); },
+    async layerInfo(side, url) { await wait(); const d = info[url.replace(/\/$/, "")]; if (!d) throw fail("Layer not found"); return JSON.parse(JSON.stringify(d)); },
     async query(side, url, p) {
       await wait(30); const sd = sideOf(url); let list = rows[sd].filter(r => evalWhere(p.where, r.attributes));
       if (p.returnCountOnly) return {count: list.length};
@@ -591,21 +571,17 @@ function renderPicker(side) {
   const locked = !S.home;
   el.innerHTML = role +
     '<div class="seg" role="group" aria-label="Where"><button type="button" data-act="mode" data-side="' + side + '" data-v="home" aria-pressed="' + (P.mode === "home") + '">This organisation</button><button type="button" data-act="mode" data-side="' + side + '" data-v="other" aria-pressed="' + (P.mode === "other") + '">Another ArcGIS portal</button></div>' +
-    (P.mode === "other" ? '<div class="box"><label class="lab">Portal URL<input type="text" id="purl-' + side + '" placeholder="https://ims.unmas.org/portal" value="' + esc(P.url || ((CFG.otherPortals || {})[0] || {}).url || "") + '"></label>' +
-      '<label class="lab">App ID registered on that portal (opens the portal\'s own sign-in page; leave empty to type a username and password)<input type="text" id="papp-' + side + '" value="' + esc(P.appId || ((CFG.otherPortals || {})[0] || {}).appId || "") + '"></label>' +
-      '<div class="small muted">That portal must allow this app: its administrator adds <span class="mono">' + esc(location.origin) + '</span> to the allowed origins and, for its sign-in page, registers this app. <button type="button" class="small" data-act="copyreq" data-side="' + side + '">Copy the request for the portal administrator</button></div>' +
+    (P.mode === "other" ? '<div class="box"><label class="lab">Portal URL<input type="text" id="purl-' + side + '" placeholder="https://ims.unmas.org/portal" value="' + esc(P.url || "") + '"></label>' +
+      '<label class="lab">App ID on that portal (optional; leave empty to sign in with username and password)<input type="text" id="papp-' + side + '" value="' + esc(P.appId || "") + '"></label>' +
       '<div class="row"><button type="button" class="small primary" data-act="connect" data-side="' + side + '">Connect</button><span class="status" id="pstat-' + side + '">' + (P.conn ? '<span class="ok">✔ Connected as ' + esc(P.conn.user) + '</span>' : "") + '</span></div></div>' : "") +
     '<div class="row"><label class="lab grow">Look in<select id="scope-' + side + '" data-act="scope" data-side="' + side + '">' +
       [["mine_shared","My content + shared with me"],["mine","My content"],["shared","Shared with me (my groups)"],["org","My organisation"],["all","Everywhere I can access"]].map(o => '<option value="' + o[0] + '"' + ((P.scope || "mine_shared") === o[0] ? " selected" : "") + '>' + o[1] + '</option>').join("") + '</select></label>' +
       '<label class="lab grow">Search<input type="text" id="q-' + side + '" value="' + esc(P.q || "") + '" placeholder="title or tag"></label><button type="button" class="small" data-act="search" data-side="' + side + '" style="align-self:end">Search</button></div>' +
     '<label class="lab">Item<select id="item-' + side + '" data-act="item" data-side="' + side + '"><option value="">' + (P.items.length ? "Choose an item…" : "Search to list layers") + '</option>' + P.items.map((it, i) => '<option value="' + i + '"' + (P.itemIdx === i ? " selected" : "") + '>' + esc(it.title + " · " + it.owner + (it.shared ? "  (shared)" : "")) + '</option>').join("") + '</select></label>' +
     '<label class="lab">Layer or table<select id="layer-' + side + '">' + P.layers.map((l, i) => '<option value="' + i + '">' + esc(l.kind + ": " + l.name) + '</option>').join("") + '</select></label>' +
-    '<label class="lab">…or paste an address: a layer, a FeatureServer, a services folder, or an item ID<input type="text" id="direct-' + side + '" placeholder="https://ims.unmas.org/server/rest/services/non_technical_survey"></label>' +
-    '<details' + (P.token ? ' open' : '') + '><summary class="small">Secured server? Use a token</summary><div style="display:grid;gap:6px;margin-top:6px">' +
-      '<label class="lab">Token for the pasted address<input type="password" id="token-' + side + '" value="' + esc(P.token || "") + '" autocomplete="off" placeholder="paste the generated token"></label>' +
-      '<div class="small muted">Make it on the portal\'s Generate Token page (…/portal/sharing/rest/generateToken). For <b>Client</b> choose <b>Webapp URL</b> and enter this app\'s address exactly: <span class="mono">' + esc(location.origin) + '</span>. The token works only until it expires; then make a new one.</div></div></details>' +
+    '<label class="lab">…or paste a layer URL or item ID<input type="text" id="direct-' + side + '" placeholder="https://services.arcgis.com/…/FeatureServer/0"></label>' +
     '<div class="row"><button type="button" class="primary" data-act="use" data-side="' + side + '">Use this layer</button></div>' +
-    '<div class="status" id="lstat-' + side + '">' + (L ? '<span class="ok">✔ <b>' + esc(L.label) + '</b></span> <span class="muted">· ' + esc((L.geometryType || "table").replace("esriGeometry", "")) + ' · ' + L.fields.length + ' fields (' + L.fields.filter(f => !f.system).length + ' to map)' + (L.hasAttachments ? ' · attachments' : '') + '</span>' + (P.msg ? '<div>' + P.msg + '</div>' : '') : (P.msg || "")) + '</div>';
+    '<div class="status" id="lstat-' + side + '">' + (L ? '<span class="ok">✔ <b>' + esc(L.label) + '</b></span> <span class="muted">· ' + esc((L.geometryType || "table").replace("esriGeometry", "")) + ' · ' + L.fields.length + ' fields (' + L.fields.filter(f => !f.system).length + ' to map)' + (L.hasAttachments ? ' · attachments' : '') + '</span>' : (P.msg || "")) + '</div>';
   el.classList.toggle("locked", locked);
 }
 async function doSearch(side) {
@@ -619,54 +595,16 @@ async function doSearch(side) {
 async function pickItem(side, idx) {
   const P = S.pick[side]; P.itemIdx = idx === "" ? null : Number(idx); P.layers = [];
   if (P.itemIdx == null) { renderPicker(side); return; }
-  const it = P.items[P.itemIdx];
-  try {
-    if (it.folder) { await openServerUrl(side, it.url); return; }
-    P.layers = await API.itemLayers(side, it);
-  } catch (e) { P.msg = '<span class="bad">Could not read the item: ' + esc(e.message) + '</span>'; }
+  try { P.layers = await API.itemLayers(side, P.items[P.itemIdx]); } catch (e) { P.msg = '<span class="bad">Could not read the item: ' + esc(e.message) + '</span>'; }
   renderPicker(side);
-}
-/* A pasted ArcGIS Server address: a layer, a service, or a services folder. Returns a layer URL, or null after listing choices. */
-const hostOf = u => { try { return new URL(u).hostname; } catch (e) { return "server"; } };
-const serviceLabel = u => { const m = u.match(/\/rest\/services\/(.+?)\/(FeatureServer|MapServer)/i); return m ? m[1].split("/").pop() : ""; };
-async function openServerUrl(side, raw) {
-  const P = S.pick[side];
-  const u = raw.replace(/[?#].*$/, "").replace(/\/+$/, "");
-  const j = await API.layerInfo(side, u);
-  if (j.fields) return u;                                   // a layer or table
-  if (j.layers || j.tables) {                               // a FeatureServer / MapServer
-    const item = {id: u, title: serviceLabel(u + "/") || u.split("/").slice(-2, -1)[0] || "Service", owner: hostOf(u), url: u};
-    P.items = [item]; P.itemIdx = 0; P.layers = await API.itemLayers(side, item);
-    if (P.layers.length === 1) return P.layers[0].url;
-    P.msg = '<span class="muted">' + P.layers.length + ' layers and tables in this service. Choose one, then click Use this layer.</span>';
-    renderPicker(side); return null;
-  }
-  if (j.services || j.folders) {                            // a services folder (or the services root)
-    const root = u.replace(/(\/rest\/services).*$/i, "$1");
-    const svcs = (j.services || []).filter(x => /FeatureServer|MapServer/i.test(x.type))
-      .sort((a, b) => (a.type === "FeatureServer" ? 0 : 1) - (b.type === "FeatureServer" ? 0 : 1) || a.name.localeCompare(b.name))
-      .map(x => ({id: x.name + x.type, title: x.name.split("/").pop() + " (" + x.type + ")", owner: hostOf(u), url: root + "/" + x.name + "/" + x.type}));
-    const folders = (j.folders || []).map(f => ({id: "folder:" + f, title: "Folder: " + f, owner: hostOf(u), url: root + "/" + f, folder: true}));
-    P.items = svcs.concat(folders); P.itemIdx = null; P.layers = [];
-    P.msg = '<span class="muted">' + svcs.length + ' services' + (folders.length ? ' and ' + folders.length + ' folders' : '') + ' found. Choose one in Item, then a layer, then click Use this layer. Only FeatureServer layers can receive data.</span>';
-    renderPicker(side); return null;
-  }
-  throw fail("This address is not a layer, a service or a services folder.");
 }
 async function useLayer(side) {
   const P = S.pick[side]; const d = $("#direct-" + side).value.trim();
   let url, label;
   try {
-    if (/^https?:\/\//i.test(d)) {
-      const tok = (($("#token-" + side) || {}).value || "").trim(); P.token = tok;
-      if (tok) await API.useToken(d, tok);
-      url = await openServerUrl(side, d);
-      if (!url) { const box = $("#direct-" + side); if (box) box.value = ""; return; }
-      label = serviceLabel(url);
-    }
+    if (/^https?:\/\//i.test(d)) { url = d.replace(/\/$/, "").replace(/\?.*$/, ""); }
     else if (/^[0-9a-f]{32}$/i.test(d)) { const it = await API.itemById(side, d); P.items = [it]; P.itemIdx = 0; P.layers = await API.itemLayers(side, it); url = P.layers[0] && P.layers[0].url; label = it.title; }
     else { const l = P.layers[Number($("#layer-" + side).value)]; if (!l) throw fail("Choose an item and a layer first, or paste a layer URL."); url = l.url; label = P.items[P.itemIdx].title; }
-    if (/\/MapServer\//i.test(url)) P.msg = "";
     if (!url) throw fail("That item has no layers.");
     const info = await API.layerInfo(side, url);
     if (!info.fields) throw fail("This address is not a layer or table. Add the layer number, for example …/FeatureServer/0.");
@@ -674,7 +612,7 @@ async function useLayer(side) {
     S[side] = {url, label: (label ? label + " · " : "") + info.name, name: info.name, geometryType: info.geometryType || null, wkid: sr.latestWkid || sr.wkid || null,
       oid: info.objectIdField || "OBJECTID", fields: (info.fields || []).map(normField), hasAttachments: !!info.hasAttachments, capabilities: String(info.capabilities || ""),
       obac: info.ownershipBasedAccessControlForFeatures || null, portal: P.mode === "other" ? (P.url || "") : "this organisation"};
-    P.msg = /\/MapServer\//i.test(url) ? '<span class="warn">This is a MapServer layer: it can be read, but not written to. Use a FeatureServer layer as the target.</span>' : "";
+    P.msg = "";
   } catch (e) { P.msg = '<span class="bad">Could not load the layer: ' + esc(e.message) + '</span>'; renderPicker(side); return; }
   renderPicker(side); layersChanged(side);
 }
@@ -683,33 +621,7 @@ async function connectOther(side) {
   if (!/^https:\/\//i.test(P.url)) { $("#pstat-" + side).innerHTML = '<span class="bad">Enter the portal address, starting with https://</span>'; return; }
   $("#pstat-" + side).innerHTML = '<span class="muted">Connecting… a sign-in window may open.</span>';
   try { P.conn = await API.connect(side, P.url, P.appId); renderPicker(side); doSearch(side); }
-  catch (e) {
-    const why = API.demo ? "" : await diagnosePortal(P.url.replace(/\/$/, ""));
-    $("#pstat-" + side).innerHTML = '<span class="bad">Could not connect: ' + esc(e.message) + '.</span><div class="small" style="margin-top:6px">' + why +
-      ' <button type="button" class="small" data-act="copyreq" data-side="' + side + '">Copy the request for the portal administrator</button></div>';
-  }
-}
-async function diagnosePortal(purl) {
-  let info;
-  try { const r = await fetch(purl + "/sharing/rest/info?f=json", {credentials: "omit"}); info = await r.json(); }
-  catch (e) {
-    return "<b>Cause:</b> the portal does not accept requests from this app's address (" + esc(location.origin) + "). The notebook and Survey123 work because they do not run in a browser. The portal administrator must add this address to the portal's allowed origins."; }
-  const t = info && info.authInfo && info.authInfo.tokenServicesUrl;
-  if (t && !/^https:\/\//i.test(t)) return "<b>Cause:</b> the portal sends browsers to an unsecured sign-in address (" + esc(t) + "). The administrator must set it to the https address.";
-  try { if (t && new URL(t).host !== new URL(purl).host) return "<b>Possible cause:</b> the portal sends browsers to a different sign-in server (" + esc(t) + "), which may be internal or may block this app. Ask the administrator to check it."; } catch (e2) {}
-  return "<b>The portal is reachable,</b> so the sign-in itself was refused. If your account uses a company login (SSO), ask the administrator to register this app and paste its App ID above; then the portal's own sign-in page opens. Otherwise check the username and password, or ask the administrator to allow this app's address.";
-}
-function adminRequest(purl) {
-  const base = location.href.replace(/[#?].*$/, "").replace(/[^\/]*$/, "");
-  return "Dear portal administrator,\n\nWe use a web app (AGOL Field Mapper) to copy survey records into layers on " + purl + ". It runs in the browser at:\n" + base + "\n\nPlease:\n" +
-    "1. Add this address to the portal's allowed origins (Organization > Settings > Security > Allowed origins):\n   " + location.origin + "\n" +
-    "2. Check that tokenServicesUrl in " + purl + "/sharing/rest/info?f=pjson is the public https address (" + purl + "/sharing/rest/generateToken), not an internal or http address.\n" +
-    "3. So that users can sign in on the portal's own sign-in page (needed for company/SSO logins), register an application on the portal with these redirect URLs and send us its Client ID (App ID):\n   " + base + "\n   " + base + "oauth-callback.html\n\n" +
-    "The app only makes standard ArcGIS REST requests (query, applyEdits, attachments) with each signed-in user's own permissions, and stores no credentials or data.\n\nThank you.";
-}
-async function copyText(text) {
-  try { await navigator.clipboard.writeText(text); return true; }
-  catch (e) { const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand("copy"); } catch (e2) {} ta.remove(); return ok; }
+  catch (e) { $("#pstat-" + side).innerHTML = '<span class="bad">Could not connect: ' + esc(e.message) + '. If the portal is only reachable inside the UNMAS network, it cannot be reached from here.</span>'; }
 }
 
 /* ================================================================ mapping table */
@@ -1046,7 +958,6 @@ document.addEventListener("click", async e => {
     if (b.id === "btn-signout") { API.signOut(); return; }
     if (act === "mode") { const P = S.pick[side]; P.mode = b.dataset.v; P.items = []; P.layers = []; P.itemIdx = null; if (P.mode === "home") { API.useHome(side); renderPicker(side); doSearch(side); } else renderPicker(side); return; }
     if (act === "connect") { connectOther(side); return; }
-    if (act === "copyreq") { const u = ($("#purl-" + side) || {}).value || "https://ims.unmas.org/portal"; toast(await copyText(adminRequest(u.trim().replace(/\/$/, ""))) ? "Request copied. Paste it into an email to the portal administrator." : "Copy was blocked by the browser."); return; }
     if (act === "search") { doSearch(side); return; }
     if (act === "use") { useLayer(side); return; }
     if (act === "vals") { const t = b.dataset.t; S.open.has(t) ? S.open.delete(t) : S.open.add(t); renderMap(); return; }
