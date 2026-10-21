@@ -410,7 +410,27 @@ function realApi() {
     s.onerror = () => reject(fail("The ArcGIS JavaScript library could not be loaded."));
     document.head.appendChild(s);
   });
-  async function req(url, opts) { await ready; return (await esriRequest(url, Object.assign({responseType: "json"}, opts || {}))).data; }
+  const manual = [];           // [{prefix, token}] servers reached with a pasted token, called directly
+  const manualFor = url => manual.find(m => url.toLowerCase().startsWith(m.prefix));
+  async function direct(url, opts, tok) {
+    opts = opts || {}; const q = Object.assign({}, opts.query || {}); q.token = tok;
+    const enc = o => Object.entries(o).filter(([k, v]) => v !== undefined && v !== null).map(([k, v]) => encodeURIComponent(k) + "=" + encodeURIComponent(typeof v === "object" ? JSON.stringify(v) : v)).join("&");
+    let res;
+    try {
+      if (opts.body instanceof FormData) { opts.body.append("token", tok); res = await fetch(url + "?" + enc(q), {method: "POST", body: opts.body}); }
+      else if (opts.method === "post") res = await fetch(url, {method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded"}, body: enc(q)});
+      else res = await fetch(url + "?" + enc(q));
+    } catch (e) { throw fail("The server could not be reached from this app (" + e.message + "). It may block requests from " + location.origin + "."); }
+    if (opts.responseType === "blob") { if (!res.ok) throw fail("HTTP " + res.status); return res.blob(); }
+    const txt = await res.text(); let data;
+    try { data = JSON.parse(txt); } catch (e) { throw fail("Unexpected answer from the server (HTTP " + res.status + ")."); }
+    if (data && data.error) throw fail("Server says " + (data.error.code || "") + ": " + (data.error.message || "error") + (data.error.details && data.error.details.length ? " " + data.error.details.join(" ") : ""));
+    return data;
+  }
+  async function req(url, opts) {
+    const m = manualFor(url); if (m) return direct(url, Object.assign({responseType: "json"}, opts || {}), m.token);
+    await ready; return (await esriRequest(url, Object.assign({responseType: "json"}, opts || {}))).data;
+  }
   function check(data) { if (data && data.error) throw fail((data.error.message || "ArcGIS error") + (data.error.details && data.error.details.length ? ": " + data.error.details.join(" ") : "")); return data; }
   return {
     demo: false,
@@ -431,9 +451,9 @@ function realApi() {
       await ready;
       const m = url.match(/^(https:\/\/[^\/]+\/[^\/]+)\/(rest\/services|sharing\/rest)/i);
       if (!m) throw fail("The token can only be used with an https ArcGIS address (…/rest/services/… or …/sharing/rest).");
-      const server = m[1] + "/" + m[2];
-      try { const old = esriId.findCredential(server); if (old) old.destroy(); } catch (e) {}
-      esriId.registerToken({server, token: token.trim(), ssl: true, userId: "the pasted token"});
+      const prefix = (m[1] + "/").toLowerCase();
+      for (let i = manual.length - 1; i >= 0; i--) if (manual[i].prefix === prefix) manual.splice(i, 1);
+      manual.push({prefix, token: token.trim()});
     },
     async search(side, scope, q) {
       const p = portals[side]; const me = p.user ? p.user.username : "";
@@ -468,7 +488,11 @@ function realApi() {
       return check(await req(url + "/applyEdits", {method: "post", query: q}));
     },
     async attList(side, url, oid) { const d = check(await req(url + "/" + oid + "/attachments", {query: {f: "json"}})); return d.attachmentInfos || []; },
-    async attGet(side, url, oid, aid) { await ready; return (await esriRequest(url + "/" + oid + "/attachments/" + aid, {responseType: "blob"})).data; },
+    async attGet(side, url, oid, aid) {
+      const u = url + "/" + oid + "/attachments/" + aid, m = manualFor(u);
+      if (m) return direct(u, {responseType: "blob"}, m.token);
+      await ready; return (await esriRequest(u, {responseType: "blob"})).data;
+    },
     async attAdd(side, url, oid, blob, name, keywords) {
       const fd = new FormData(); fd.append("attachment", blob, name || "attachment"); fd.append("f", "json"); if (keywords) fd.append("keywords", keywords);
       const d = check(await req(url + "/" + oid + "/addAttachment", {method: "post", body: fd}));
