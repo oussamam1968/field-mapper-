@@ -433,7 +433,7 @@ function realApi() {
       if (!m) throw fail("The token can only be used with an https ArcGIS address (…/rest/services/… or …/sharing/rest).");
       const server = m[1] + "/" + m[2];
       try { const old = esriId.findCredential(server); if (old) old.destroy(); } catch (e) {}
-      esriId.registerToken({server, token: token.trim(), ssl: true});
+      esriId.registerToken({server, token: token.trim(), ssl: true, userId: "the pasted token"});
     },
     async search(side, scope, q) {
       const p = portals[side]; const me = p.user ? p.user.username : "";
@@ -608,7 +608,7 @@ function renderPicker(side) {
     '<label class="lab">…or paste an address: a layer, a FeatureServer, a services folder, or an item ID<input type="text" id="direct-' + side + '" placeholder="https://ims.unmas.org/server/rest/services/non_technical_survey"></label>' +
     '<details' + (P.token ? ' open' : '') + '><summary class="small">Secured server? Use a token</summary><div style="display:grid;gap:6px;margin-top:6px">' +
       '<label class="lab">Token for the pasted address<input type="password" id="token-' + side + '" value="' + esc(P.token || "") + '" autocomplete="off" placeholder="paste the generated token"></label>' +
-      '<div class="small muted">Make it on the portal\'s Generate Token page (…/portal/sharing/rest/generateToken). For <b>Client</b> choose <b>Webapp URL</b> and enter this app\'s address exactly: <span class="mono">' + esc(location.origin) + '</span>. The token works only until it expires; then make a new one.</div></div></details>' +
+      '<div class="small muted">Make it on the portal\'s Generate Token page (…/portal/sharing/rest/generateToken). For <b>Client</b> choose <b>IP Address of this request\'s origin</b> and generate it on this same computer (or choose <b>Webapp URL</b> with <span class="mono">' + esc(location.origin) + '</span>). The token works only until it expires; then make a new one.</div></div></details>' +
     '<div class="row"><button type="button" class="primary" data-act="use" data-side="' + side + '">Use this layer</button></div>' +
     '<div class="status" id="lstat-' + side + '">' + (L ? '<span class="ok">✔ <b>' + esc(L.label) + '</b></span> <span class="muted">· ' + esc((L.geometryType || "table").replace("esriGeometry", "")) + ' · ' + L.fields.length + ' fields (' + L.fields.filter(f => !f.system).length + ' to map)' + (L.hasAttachments ? ' · attachments' : '') + '</span>' + (P.msg ? '<div>' + P.msg + '</div>' : '') : (P.msg || "")) + '</div>';
   el.classList.toggle("locked", locked);
@@ -680,7 +680,12 @@ async function useLayer(side) {
       oid: info.objectIdField || "OBJECTID", fields: (info.fields || []).map(normField), hasAttachments: !!info.hasAttachments, capabilities: String(info.capabilities || ""),
       obac: info.ownershipBasedAccessControlForFeatures || null, portal: P.mode === "other" ? (P.url || "") : "this organisation"};
     P.msg = /\/MapServer\//i.test(url) ? '<span class="warn">This is a MapServer layer: it can be read, but not written to. Use a FeatureServer layer as the target.</span>' : "";
-  } catch (e) { P.msg = '<span class="bad">Could not load the layer: ' + esc(e.message) + '</span>'; renderPicker(side); return; }
+  } catch (e) {
+    let hint = "";
+    if (/do not have access|not authorized|invalid token|token required|498|499|403/i.test(e.message || "") && (($("#token-" + side) || {}).value || "").trim())
+      hint = '<div class="small" style="margin-top:4px">The server refused the token. Make a new token on the Generate Token page with <b>Client: IP Address of this request\'s origin</b>, from this same computer and browser, and paste it again. Also check that this account can open the layer in the portal.</div>';
+    P.msg = '<span class="bad">Could not load the layer: ' + esc(e.message) + '</span>' + hint; renderPicker(side); return;
+  }
   renderPicker(side); layersChanged(side);
 }
 async function connectOther(side) {
