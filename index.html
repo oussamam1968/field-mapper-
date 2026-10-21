@@ -426,6 +426,14 @@ function realApi() {
       return {user: p.user ? p.user.username : "", portal: purl, orgId: p.id};
     },
     useHome(side) { portals[side] = portals.home; },
+    async useToken(url, token) {
+      await ready;
+      const m = url.match(/^(https:\/\/[^\/]+\/[^\/]+)\/(rest\/services|sharing\/rest)/i);
+      if (!m) throw fail("The token can only be used with an https ArcGIS address (…/rest/services/… or …/sharing/rest).");
+      const server = m[1] + "/" + m[2];
+      try { const old = esriId.findCredential(server); if (old) old.destroy(); } catch (e) {}
+      esriId.registerToken({server, token: token.trim(), ssl: true});
+    },
     async search(side, scope, q) {
       const p = portals[side]; const me = p.user ? p.user.username : "";
       const run = async (scopeQ) => {
@@ -529,7 +537,7 @@ function demoApi() {
     async status() { return {user: "demo_user", portal: "demo organisation"}; },
     async signIn() { return this.status(); }, signOut() {},
     async connect(side, url) { await wait(); return {user: "demo_user", portal: url || "demo organisation"}; },
-    useHome() {},
+    useHome() {}, async useToken() {},
     async search(side, scope, q) { await wait(); return [{id: "src1", title: "232 NTS Field Report Syria 2025 (demo)", owner: "admin.syria_npaid", url: "demo://src", shared: true}, {id: "tgt1", title: "232 HZ Field Report Syria 2023 (demo)", owner: "demo_user", url: "demo://tgt", shared: false}].filter(it => !q || it.title.toLowerCase().includes(q.toLowerCase())); },
     async itemLayers(side, item) {
       if (/FeatureServer$/.test(item.url)) { const d = await this.layerInfo(side, item.url); return (d.layers || []).map(l => ({name: l.name, url: item.url + "/" + l.id, kind: "Layer"})).concat((d.tables || []).map(l => ({name: l.name, url: item.url + "/" + l.id, kind: "Table"}))); }
@@ -593,6 +601,9 @@ function renderPicker(side) {
     '<label class="lab">Item<select id="item-' + side + '" data-act="item" data-side="' + side + '"><option value="">' + (P.items.length ? "Choose an item…" : "Search to list layers") + '</option>' + P.items.map((it, i) => '<option value="' + i + '"' + (P.itemIdx === i ? " selected" : "") + '>' + esc(it.title + " · " + it.owner + (it.shared ? "  (shared)" : "")) + '</option>').join("") + '</select></label>' +
     '<label class="lab">Layer or table<select id="layer-' + side + '">' + P.layers.map((l, i) => '<option value="' + i + '">' + esc(l.kind + ": " + l.name) + '</option>').join("") + '</select></label>' +
     '<label class="lab">…or paste an address: a layer, a FeatureServer, a services folder, or an item ID<input type="text" id="direct-' + side + '" placeholder="https://ims.unmas.org/server/rest/services/non_technical_survey"></label>' +
+    '<details' + (P.token ? ' open' : '') + '><summary class="small">Secured server? Use a token</summary><div style="display:grid;gap:6px;margin-top:6px">' +
+      '<label class="lab">Token for the pasted address<input type="password" id="token-' + side + '" value="' + esc(P.token || "") + '" autocomplete="off" placeholder="paste the generated token"></label>' +
+      '<div class="small muted">Make it on the portal\'s Generate Token page (…/portal/sharing/rest/generateToken). For <b>Client</b> choose <b>Webapp URL</b> and enter this app\'s address exactly: <span class="mono">' + esc(location.origin) + '</span>. The token works only until it expires; then make a new one.</div></div></details>' +
     '<div class="row"><button type="button" class="primary" data-act="use" data-side="' + side + '">Use this layer</button></div>' +
     '<div class="status" id="lstat-' + side + '">' + (L ? '<span class="ok">✔ <b>' + esc(L.label) + '</b></span> <span class="muted">· ' + esc((L.geometryType || "table").replace("esriGeometry", "")) + ' · ' + L.fields.length + ' fields (' + L.fields.filter(f => !f.system).length + ' to map)' + (L.hasAttachments ? ' · attachments' : '') + '</span>' + (P.msg ? '<div>' + P.msg + '</div>' : '') : (P.msg || "")) + '</div>';
   el.classList.toggle("locked", locked);
@@ -647,6 +658,8 @@ async function useLayer(side) {
   let url, label;
   try {
     if (/^https?:\/\//i.test(d)) {
+      const tok = (($("#token-" + side) || {}).value || "").trim(); P.token = tok;
+      if (tok) await API.useToken(d, tok);
       url = await openServerUrl(side, d);
       if (!url) { const box = $("#direct-" + side); if (box) box.value = ""; return; }
       label = serviceLabel(url);
