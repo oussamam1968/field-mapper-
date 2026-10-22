@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NPA IM Migration System</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b6b72">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="IM Migration">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <script src="config.js"></script>
 <script>
 /* ================== SETTINGS ==================
@@ -95,6 +103,24 @@ progress{width:100%;height:10px;accent-color:var(--accent)}
 .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:9px 16px;border-radius:6px;font-size:13.5px;max-width:calc(100% - 32px);z-index:50}
 .locked{opacity:.55;pointer-events:none}
 @media (max-width:820px){.grid2{grid-template-columns:1fr}.strip{grid-template-columns:repeat(2,minmax(0,1fr))}.cond{grid-template-columns:1fr}}
+@media (max-width:700px){
+  .wrap{padding:12px max(12px, env(safe-area-inset-right)) 48px max(12px, env(safe-area-inset-left))}
+  h1{font-size:23px}
+  .tablebox{border:0;overflow:visible}
+  .tablebox table{min-width:0}
+  .tablebox thead{display:none}
+  .tablebox tbody, .tablebox tr, .tablebox td{display:block;width:100%}
+  .tablebox tr.main{border:1px solid var(--line);border-radius:8px;margin-top:10px;background:var(--surface)}
+  .tablebox tr.main td{border-bottom:0;padding:6px 10px}
+  .tablebox tr.main td:first-child{border-left-width:4px;border-radius:8px 0 0 0}
+  .tablebox tr.main td:nth-child(3):empty{display:none}
+  .tablebox tr.vrow td{border-radius:0 0 8px 8px}
+  .vgrid{grid-template-columns:1fr;gap:4px}
+  .vgrid .muted{display:none}
+  button,select,input[type=text],input[type=password],input[type=date]{min-height:40px}
+  .row > .grow{flex-basis:100%}
+}
+.install{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;background:var(--accent-soft);border-radius:8px;padding:8px 12px}
 </style>
 </head>
 <body>
@@ -106,6 +132,7 @@ progress{width:100%;height:10px;accent-color:var(--accent)}
     </div>
     <div class="who" id="who"></div>
   </header>
+  <div class="install" id="install" hidden></div>
 
   <section class="card" id="sec-layers">
     <h2><span class="n">1</span>Choose the layers</h2>
@@ -195,6 +222,8 @@ progress{width:100%;height:10px;accent-color:var(--accent)}
 /* ---------------------------------------------------------------- constants */
 const CFG = window.FM_CONFIG || {};
 const DEMO = /[?&]demo=1/.test(location.search) || !CFG.appId || /PASTE_/.test(CFG.appId);
+const STANDALONE = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
+const USE_POPUP = !STANDALONE;   // installed phone app: sign in by redirect (pop-ups are unreliable there)
 const SYS_NAMES = new Set(["objectid","fid","oid","globalid","shape","shape__area","shape__length","shape_area","shape_length","shape.starea()","shape.stlength()","creationdate","creator","editdate","editor","created_user","created_date","last_edited_user","last_edited_date"]);
 const SYS_TYPES = new Set(["OID","GlobalID","Geometry"]);
 const INT = ["SmallInteger","Integer","BigInteger","OID"], FLT = ["Single","Double"], DATES = ["Date","DateOnly","TimeOnly","TimestampOffset"];
@@ -416,7 +445,7 @@ function realApi() {
     const s = document.createElement("script"); s.src = "https://js.arcgis.com/4.30/";
     s.onload = () => window.require(["esri/request","esri/identity/IdentityManager","esri/identity/OAuthInfo","esri/portal/Portal"], (r, id, oi, p) => {
       esriRequest = r; esriId = id; OAuthInfo = oi; Portal = p;
-      esriId.registerOAuthInfos([new OAuthInfo({appId: CFG.appId, portalUrl: home, popup: true, popupCallbackUrl: new URL("oauth-callback.html", location.href).href})]);
+      esriId.registerOAuthInfos([new OAuthInfo({appId: CFG.appId, portalUrl: home, popup: USE_POPUP, popupCallbackUrl: new URL("oauth-callback.html", location.href).href})]);
       resolve();
     }, reject);
     s.onerror = () => reject(fail("The ArcGIS JavaScript library could not be loaded."));
@@ -452,7 +481,7 @@ function realApi() {
     async connect(side, url, appId) {
       await ready;
       const purl = (url || home).replace(/\/$/, "");
-      if (appId) esriId.registerOAuthInfos([new OAuthInfo({appId, portalUrl: purl, popup: true, popupCallbackUrl: new URL("oauth-callback.html", location.href).href})]);
+      if (appId) esriId.registerOAuthInfos([new OAuthInfo({appId, portalUrl: purl, popup: USE_POPUP, popupCallbackUrl: new URL("oauth-callback.html", location.href).href})]);
       const p = new Portal({url: purl, authMode: "immediate"}); await p.load();
       if (side === "home") { portals.src = portals.src || p; portals.tgt = portals.tgt || p; portals.home = p; }
       else portals[side] = p;
@@ -1207,6 +1236,27 @@ async function start() {
   afterSignIn();
   if (!S.home) say("Sign in to ArcGIS to start (button at the top right).");
 }
+/* ---- installable app (phone home screen) */
+if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+let deferredInstall = null;
+function renderInstall() {
+  const el = $("#install"); if (!el || STANDALONE) { if (el) el.hidden = true; return; }
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  let dismissed = false; try { dismissed = localStorage.getItem("im-install-dismissed") === "1"; } catch (e) {}
+  if (dismissed) { el.hidden = true; return; }
+  if (deferredInstall) el.innerHTML = '<b>Install this app</b><span>Add it to your home screen to open it like an app.</span><button type="button" class="small primary" id="btn-install">Install</button><button type="button" class="small" id="btn-install-x">Not now</button>';
+  else if (ios) el.innerHTML = '<b>Install on iPhone</b><span>In Safari, tap the Share button, then <b>Add to Home Screen</b>.</span><button type="button" class="small" id="btn-install-x">OK</button>';
+  else { el.hidden = true; return; }
+  el.hidden = false;
+}
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); deferredInstall = e; renderInstall(); });
+window.addEventListener("appinstalled", () => { deferredInstall = null; const el = $("#install"); if (el) el.hidden = true; });
+document.addEventListener("click", async e => {
+  if (e.target.id === "btn-install" && deferredInstall) { deferredInstall.prompt(); try { await deferredInstall.userChoice; } catch (er) {} deferredInstall = null; renderInstall(); }
+  if (e.target.id === "btn-install-x") { try { localStorage.setItem("im-install-dismissed", "1"); } catch (er) {} $("#install").hidden = true; }
+});
+renderInstall();
+
 window.__FM = {S, get API() { return API; }, convert, transform, buildClause, matchKey, score};
 start();
 })();
