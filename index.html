@@ -452,8 +452,25 @@ function realApi() {
       const m = url.match(/^(https:\/\/[^\/]+\/[^\/]+)\/(rest\/services|sharing\/rest)/i);
       if (!m) throw fail("The token can only be used with an https ArcGIS address (…/rest/services/… or …/sharing/rest).");
       const prefix = (m[1] + "/").toLowerCase();
+      let tok = token.trim(), note = "";
+      // A server federated with a portal may only accept its own token: exchange the portal token for a server token.
+      if (/rest\/services/i.test(m[2])) {
+        try {
+          const info = await (await fetch(m[1] + "/rest/info?f=json")).json();
+          const tsu = info && info.authInfo && info.authInfo.tokenServicesUrl;
+          if (info && info.owningSystemUrl && tsu) {
+            try {
+              const body = new URLSearchParams({token: tok, serverUrl: m[1], f: "json", client: "referer", referer: location.origin});
+              const j = await (await fetch(tsu, {method: "POST", body})).json();
+              if (j && j.token) { tok = j.token; note = "Portal token exchanged for a server token."; }
+              else note = "The portal did not exchange the token" + (j && j.error ? " (" + (j.error.message || j.error.code) + ")" : "") + "; using it as pasted.";
+            } catch (e) { note = "The portal could not be asked to exchange the token from this app; using it as pasted."; }
+          }
+        } catch (e) { note = ""; }
+      }
       for (let i = manual.length - 1; i >= 0; i--) if (manual[i].prefix === prefix) manual.splice(i, 1);
-      manual.push({prefix, token: token.trim()});
+      manual.push({prefix, token: tok});
+      return note;
     },
     async search(side, scope, q) {
       const p = portals[side]; const me = p.user ? p.user.username : "";
@@ -688,9 +705,11 @@ async function useLayer(side) {
   try {
     if (/^https?:\/\//i.test(d)) {
       const tok = (($("#token-" + side) || {}).value || "").trim(); P.token = tok;
-      if (tok) await API.useToken(d, tok);
+      let tnote = "";
+      if (tok) tnote = (await API.useToken(d, tok)) || "";
+      P.tokenNote = tnote;
       url = await openServerUrl(side, d);
-      if (!url) { const box = $("#direct-" + side); if (box) box.value = ""; return; }
+      if (!url) { const box = $("#direct-" + side); if (box) box.value = ""; if (P.tokenNote) { P.msg += '<div class="small muted">' + esc(P.tokenNote) + '</div>'; renderPicker(side); } return; }
       label = serviceLabel(url);
     }
     else if (/^[0-9a-f]{32}$/i.test(d)) { const it = await API.itemById(side, d); P.items = [it]; P.itemIdx = 0; P.layers = await API.itemLayers(side, it); url = P.layers[0] && P.layers[0].url; label = it.title; }
@@ -708,7 +727,7 @@ async function useLayer(side) {
     let hint = "";
     if (/do not have access|not authorized|invalid token|token required|498|499|403/i.test(e.message || "") && (($("#token-" + side) || {}).value || "").trim())
       hint = '<div class="small" style="margin-top:4px">The server refused the token. Make a new token on the Generate Token page with <b>Client: IP Address of this request\'s origin</b>, from this same computer and browser, and paste it again. Also check that this account can open the layer in the portal.</div>';
-    P.msg = '<span class="bad">Could not load the layer: ' + esc(e.message) + '</span>' + hint; renderPicker(side); return;
+    P.msg = '<span class="bad">Could not load the layer: ' + esc(e.message) + '</span>' + hint + (P.tokenNote ? '<div class="small muted">' + esc(P.tokenNote) + '</div>' : ''); renderPicker(side); return;
   }
   renderPicker(side); layersChanged(side);
 }
