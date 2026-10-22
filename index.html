@@ -161,8 +161,9 @@ progress{width:100%;height:10px;accent-color:var(--accent)}
     </div>
     <div class="box">
       <h3>Mark source records as sent</h3>
-      <label class="chk"><input type="checkbox" id="mk-on"><span>After writing, update the copied records in the source layer</span></label>
-      <div class="row" id="mk-row" hidden><select id="mk-field" class="grow" aria-label="Source field"></select><span>to</span><input type="text" id="mk-value" class="grow" list="mk-values" placeholder="e.g. sent" aria-label="New value"><datalist id="mk-values"></datalist></div>
+      <div class="small muted">For example, change <i>status</i> from <i>submitted</i> to <i>sent</i> so the same records are not copied again. Only records the target accepted are updated. You need edit rights on the source layer.</div>
+      <label class="chk"><input type="checkbox" id="mk-on"><span>After appending, update the copied records in the source layer</span></label>
+      <div class="row" id="mk-row" hidden><label class="lab grow">Set field<select id="mk-field" aria-label="Source field"></select></label><span style="align-self:end;padding-bottom:8px">to</span><label class="lab grow">New value<input type="text" id="mk-value" list="mk-values" placeholder="e.g. sent" aria-label="New value"></label><datalist id="mk-values"></datalist></div>
       <div id="mk-warn" class="status bad"></div>
     </div>
   </section>
