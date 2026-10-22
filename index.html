@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AGOL Field Mapper</title>
+<title>NPA IM Migration System</title>
 <script src="config.js"></script>
 <script>
 /* ================== SETTINGS ==================
@@ -101,7 +101,7 @@ progress{width:100%;height:10px;accent-color:var(--accent)}
 <div class="wrap">
   <header class="top">
     <div>
-      <h1>AGOL Field Mapper</h1>
+      <h1>NPA IM Migration System</h1>
       <div class="muted">Copy records from a source feature layer to a target layer: map fields, filter, match, overwrite, append, attachments.</div>
     </div>
     <div class="who" id="who"></div>
@@ -119,11 +119,11 @@ progress{width:100%;height:10px;accent-color:var(--accent)}
     <div class="strip" id="strip"></div>
     <div class="row">
       <button type="button" class="small" id="btn-suggest">Re-run suggestions</button>
-      <button type="button" class="small" id="btn-save">Save mapping</button>
-      <select id="saved" class="small" style="width:auto;max-width:320px" aria-label="Saved mappings"></select>
-      <button type="button" class="small" id="btn-load">Load</button>
-      <button type="button" class="small" id="btn-export">Export file</button>
-      <label class="btn small" style="display:inline-block;border:1px solid var(--line);border-radius:6px;padding:4px 9px;font-size:13px;cursor:pointer">Import file<input type="file" id="imp" accept=".json" hidden></label>
+      <button type="button" class="small" data-save="1">Save mapping + settings</button>
+      <select class="small saved-list" style="width:auto;max-width:320px" aria-label="Saved mappings"></select>
+      <button type="button" class="small" data-load="1">Load mapping + settings</button>
+      <button type="button" class="small" data-export="1">Export file</button>
+      <label class="btn small" style="display:inline-block;border:1px solid var(--line);border-radius:6px;padding:4px 9px;font-size:13px;cursor:pointer">Import file<input type="file" class="imp" accept=".json" hidden></label>
       <button type="button" class="small" id="btn-csv">Mapping CSV</button>
     </div>
     <div class="tablebox"><table><thead><tr><th style="width:24%">Target field</th><th style="width:30%">Source field</th><th style="width:16%">Fixed value</th><th>Check</th></tr></thead><tbody id="tbody"></tbody></table></div>
@@ -169,6 +169,17 @@ progress{width:100%;height:10px;accent-color:var(--accent)}
 
   <section class="card locked" id="sec-run">
     <h2><span class="n">4</span>Preview and append</h2>
+    <div class="box">
+      <h3>Save or load everything</h3>
+      <div class="small muted">Saves the field mapping and all the rules in step 3: which source records to copy, records already in the target, overwrite, attachments and marking the source.</div>
+      <div class="row">
+        <button type="button" class="small" data-save="1">Save mapping + settings</button>
+        <select class="small saved-list" style="width:auto;max-width:320px" aria-label="Saved mappings"></select>
+        <button type="button" class="small" data-load="1">Load mapping + settings</button>
+        <button type="button" class="small" data-export="1">Export file</button>
+        <label class="btn small" style="display:inline-block;border:1px solid var(--line);border-radius:6px;padding:4px 9px;font-size:13px;cursor:pointer">Import file<input type="file" class="imp" accept=".json" hidden></label>
+      </div>
+    </div>
     <label class="chk"><input type="checkbox" id="confirm"><span>I tested this on a copy, or have a backup of the target layer</span></label>
     <div class="row"><button type="button" id="btn-preview">Preview (no changes)</button><button type="button" class="danger" id="btn-run">Append to target</button><button type="button" class="small" id="btn-report" hidden>Download report</button></div>
     <progress id="prog" value="0" max="1" hidden></progress>
@@ -754,7 +765,7 @@ async function diagnosePortal(purl) {
 }
 function adminRequest(purl) {
   const base = location.href.replace(/[#?].*$/, "").replace(/[^\/]*$/, "");
-  return "Dear portal administrator,\n\nWe use a web app (AGOL Field Mapper) to copy survey records into layers on " + purl + ". It runs in the browser at:\n" + base + "\n\nPlease:\n" +
+  return "Dear portal administrator,\n\nWe use a web app (NPA IM Migration System) to copy survey records into layers on " + purl + ". It runs in the browser at:\n" + base + "\n\nPlease:\n" +
     "1. Add this address to the portal's allowed origins (Organization > Settings > Security > Allowed origins):\n   " + location.origin + "\n" +
     "2. Check that tokenServicesUrl in " + purl + "/sharing/rest/info?f=pjson is the public https address (" + purl + "/sharing/rest/generateToken), not an internal or http address.\n" +
     "3. So that users can sign in on the portal's own sign-in page (needed for company/SSO logins), register an application on the portal with these redirect URLs and send us its Client ID (App ID):\n   " + base + "\n   " + base + "oauth-callback.html\n\n" +
@@ -909,7 +920,23 @@ function applySnapshot(d) {
   syncToggles(); renderMap();
 }
 function savedAll() { try { return JSON.parse(localStorage.getItem(SAVE_KEY) || "{}"); } catch (e) { return {}; } }
-function renderSaved() { const all = savedAll(); const keys = Object.keys(all).sort(); $("#saved").innerHTML = keys.length ? keys.map(k => '<option value="' + esc(k) + '">' + esc(all[k].source.label + " → " + all[k].target.label) + '</option>').join("") : '<option value="">(none saved in this browser)</option>'; }
+function renderSaved(selected) {
+  const all = savedAll(); const keys = Object.keys(all).sort();
+  const html = keys.length ? keys.map(k => '<option value="' + esc(k) + '"' + (k === selected ? " selected" : "") + '>' + esc(all[k].source.label + " → " + all[k].target.label) + '</option>').join("") : '<option value="">(none saved in this browser)</option>';
+  document.querySelectorAll(".saved-list").forEach(el => el.innerHTML = html);
+}
+function settingsSummary(verb) {
+  const mapped = S.tgt.fields.filter(t => !t.system && S.map[t.name] && S.map[t.name].source !== NONE).length;
+  const w = $("#where").value.trim() || "1=1";
+  say(verb + ":");
+  say("  • Field mapping: " + mapped + " target fields mapped");
+  say("  • Source filter: " + w + (w === "1=1" ? "  (all records)" : ""));
+  say($("#key-t").value ? "  • Records already in the target: target " + $("#key-t").value + " = source " + ($("#key-s").value || "(not chosen)") : "  • Records already in the target: not checked (every record is appended)");
+  if ($("#ow-on").checked) say("  • Overwrite when target " + $("#ow-field").value + " = " + $("#ow-value").value + ($("#ow-att").checked ? ", replace attachments" : "") + ($("#ow-set").checked ? ", then set " + $("#ow-set-field").value + " = " + $("#ow-set-value").value : ""));
+  else say("  • Overwrite: off");
+  say("  • Copy attachments: " + ($("#att-on").checked ? "on" : "off"));
+  say($("#mk-on").checked ? "  • Mark source records: " + $("#mk-field").value + " → " + $("#mk-value").value : "  • Mark source records: off");
+}
 
 /* ================================================================ toggles */
 function syncToggles() {
@@ -1104,12 +1131,26 @@ document.addEventListener("click", async e => {
     if (act === "use") { useLayer(side); return; }
     if (act === "vals") { const t = b.dataset.t; S.open.has(t) ? S.open.delete(t) : S.open.add(t); renderMap(); return; }
     if (act === "crm") { S.conds.splice(Number(b.dataset.i), 1); renderConds(); buildWhere(); return; }
+    if (b.dataset.save) {
+      if (!(S.src && S.tgt)) { toast("Choose the two layers first."); return; }
+      const all = savedAll(); const key = stub(); all[key] = snapshot();
+      try { localStorage.setItem(SAVE_KEY, JSON.stringify(all)); toast("Mapping and settings saved in this browser."); clearLog(); say("Saved in this browser (" + S.src.label + " → " + S.tgt.label + ")."); settingsSummary("Saved"); }
+      catch (er) { toast("This browser blocks saving. Use Export file instead."); }
+      renderSaved(key); return;
+    }
+    if (b.dataset.load) {
+      const sel = b.parentElement.querySelector(".saved-list"); const d = savedAll()[sel ? sel.value : ""];
+      if (!d) { toast("Nothing saved yet for this browser. Save first, or use Import file."); return; }
+      applySnapshot(d); clearLog(); say("Loaded: " + d.source.label + " → " + d.target.label + (d.saved ? " (saved " + new Date(d.saved).toLocaleString() + ")" : "")); settingsSummary("Restored"); toast("Mapping and settings loaded."); return;
+    }
+    if (b.dataset.export) {
+      if (!(S.src && S.tgt)) { toast("Choose the two layers first."); return; }
+      download(stub() + ".json", JSON.stringify(snapshot(), null, 2), "application/json"); clearLog(); say("Exported " + stub() + ".json"); settingsSummary("Exported"); return;
+    }
     if (b.dataset.match) { S.match = b.dataset.match; document.querySelectorAll("[data-match]").forEach(x => x.setAttribute("aria-pressed", String(x === b))); buildWhere(); return; }
     switch (b.id) {
       case "btn-suggest": { const n = suggest(false); renderMap(); toast(n ? n + " suggestions applied. Your own choices were kept." : "No new matches found."); break; }
-      case "btn-save": { const all = savedAll(); all[stub()] = snapshot(); try { localStorage.setItem(SAVE_KEY, JSON.stringify(all)); toast("Mapping saved in this browser."); } catch (er) { toast("This browser blocks saving. Use Export file instead."); } renderSaved(); break; }
-      case "btn-load": { const d = savedAll()[$("#saved").value]; if (d) { applySnapshot(d); toast("Mapping loaded."); } break; }
-      case "btn-export": download(stub() + ".json", JSON.stringify(snapshot(), null, 2), "application/json"); break;
+      case "__never__": break;
       case "btn-csv": {
         const rows = [["Source layer", S.src.label], ["Target layer", S.tgt.label], ["Source filter", $("#where").value], [], ["Target field","Target alias","Target type","Required","Source field","Source type","Fixed value","Check","Messages"]];
         S.tgt.fields.filter(t => !t.system).forEach(t => { const m = S.map[t.name], s = S.srcBy[m.source], c = checkField(t, m); rows.push([t.name, t.alias, typeLabel(t), t.required ? "Yes" : "No", s ? s.name : (m.source === FIXED ? "(fixed value)" : ""), s ? typeLabel(s) : "", m.source === FIXED ? m.fixed : "", LABEL[c.sev], c.msgs.map(x => x[1]).join(" ")]); });
@@ -1147,7 +1188,7 @@ document.addEventListener("change", e => {
   if (el.id === "key-t") { $("#key-s").value = ""; renderKeyInfo(); return; }
   if (el.id === "key-s") { renderKeyInfo(); return; }
   if (["ow-on","ow-set","mk-on","ow-field","ow-set-field","mk-field"].includes(el.id)) { if (el.id === "ow-set" && el.checked && !$("#ow-set-field").value) $("#ow-set-field").value = $("#ow-field").value; syncToggles(); return; }
-  if (el.id === "imp") { const f = el.files && el.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { try { applySnapshot(JSON.parse(r.result)); toast("Mapping imported."); } catch (er) { toast("That file is not a Field Mapper mapping."); } }; r.readAsText(f); el.value = ""; }
+  if (el.classList && el.classList.contains("imp")) { const f = el.files && el.files[0]; if (!f) return; if (!(S.src && S.tgt)) { toast("Choose the two layers first, then import."); el.value = ""; return; } const r = new FileReader(); r.onload = () => { try { applySnapshot(JSON.parse(r.result)); clearLog(); say("Imported " + f.name); settingsSummary("Restored"); toast("Mapping and settings imported."); } catch (er) { toast("That file is not a saved mapping."); } }; r.readAsText(f); el.value = ""; }
 });
 document.addEventListener("input", e => {
   const el = e.target;
